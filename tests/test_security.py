@@ -144,6 +144,19 @@ class TestArgumentValidation:
             with pytest.raises(ValueError, match="not allowed due to security concerns"):
                 wrapper._validate_gradle_args(args)
     
+    def test_dangerous_write_verification_metadata_blocked(self):
+        """Test that --write-verification-metadata is blocked to prevent arbitrary file writes."""
+        wrapper = GradleWrapper.__new__(GradleWrapper)
+        
+        dangerous_args = [
+            ['--write-verification-metadata', 'sha256'],
+            ['--write-verification-metadata', 'sha256', '--verification-metadata-file=/etc/passwd'],
+        ]
+        
+        for args in dangerous_args:
+            with pytest.raises(ValueError, match="not allowed due to security concerns"):
+                wrapper._validate_gradle_args(args)
+    
     def test_unknown_arguments_blocked(self):
         """Test that unknown/unlisted arguments are blocked by default."""
         wrapper = GradleWrapper.__new__(GradleWrapper)
@@ -245,3 +258,13 @@ class TestCommandInjectionPrevention:
         for attack in attacks:
             with pytest.raises(ValueError, match="not allowed due to security concerns"):
                 wrapper._validate_gradle_args(attack)
+    
+    def test_arbitrary_file_write_prevented(self):
+        """Test that arbitrary file write via --write-verification-metadata is prevented."""
+        wrapper = GradleWrapper.__new__(GradleWrapper)
+        
+        # Attacker trying to write to arbitrary locations
+        attack = ['--write-verification-metadata', 'sha256']
+        
+        with pytest.raises(ValueError, match="not allowed due to security concerns"):
+            wrapper._validate_gradle_args(attack)

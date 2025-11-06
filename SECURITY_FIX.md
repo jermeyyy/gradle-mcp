@@ -2,21 +2,42 @@
 
 ## Vulnerability Summary
 
-**Severity**: Critical  
-**Type**: Command Injection / Remote Code Execution (RCE)  
+**Severity**: Critical (Initial), High (Follow-up)  
+**Type**: Command Injection / Remote Code Execution (RCE) + Arbitrary File Write  
+**Status**: ✅ Fixed
+
+## Vulnerabilities Fixed
+
+### 1. Critical: Command Injection via Arbitrary Argument Injection
+**Status**: ✅ Fixed
+
+### 2. High: Arbitrary File Write via `--write-verification-metadata`
 **Status**: ✅ Fixed
 
 ## Description
 
+### Vulnerability 1: Command Injection (Critical)
+
 The `run_task` function in `gradle.py` was vulnerable to command injection through arbitrary argument injection. The function accepted an optional `args` parameter that was directly appended to the Gradle command without validation or sanitization. This allowed attackers to inject dangerous arguments like `--init-script` or `-I` to execute arbitrary Groovy/Kotlin code.
+
+### Vulnerability 2: Arbitrary File Write (High)
+
+The initial security fix incorrectly included `--write-verification-metadata` in the safe arguments allow-list. This Gradle argument allows specifying a file path for writing dependency verification metadata. An attacker could exploit this to write XML files to arbitrary locations on the file system where the server process has write permissions, potentially overwriting sensitive configuration files.
 
 ## Impact
 
+### Vulnerability 1 Impact
 - **Remote Code Execution (RCE)** on the machine running the Gradle MCP server
 - Ability to read/modify any file accessible to the server process
 - Data exfiltration
 - Malware installation
 - Complete host system takeover
+
+### Vulnerability 2 Impact
+- **Arbitrary file write** with partially-controlled XML content
+- Ability to overwrite sensitive system or application files
+- **Denial of Service** by corrupting critical files
+- Potential **Remote Code Execution** if configuration files that are automatically executed are overwritten (e.g., `.bashrc`, cron scripts, web server configs)
 
 ## Attack Vectors
 
@@ -43,6 +64,7 @@ exec {
 - `-g` / `--gradle-user-home`: Access arbitrary directories
 - `-p` / `--project-dir`: Execute code from different projects
 - `--include-build`: Include malicious builds
+- `--write-verification-metadata`: Write files to arbitrary locations (Fixed in v0.1.2)
 
 ## Solution Implemented
 
@@ -86,6 +108,7 @@ DANGEROUS_GRADLE_ARGS = {
     '--gradle-user-home', '-g',  # Can access arbitrary directories
     '--project-dir', '-p',       # Can access arbitrary directories
     '--include-build',           # Can include arbitrary builds
+    '--write-verification-metadata',  # Can write files to arbitrary locations (added v0.1.2)
 }
 ```
 
@@ -115,8 +138,8 @@ async def run_task(self, task: str, args: Optional[list[str]] = None, ...):
 
 ### Files Modified
 1. `src/gradle_mcp/gradle.py`:
-   - Added `SAFE_GRADLE_ARGS` class constant (lines 43-79)
-   - Added `DANGEROUS_GRADLE_ARGS` class constant (lines 81-91)
+   - Added `SAFE_GRADLE_ARGS` class constant (lines 43-74) - **removed `--write-verification-metadata` in v0.1.2**
+   - Added `DANGEROUS_GRADLE_ARGS` class constant (lines 76-88) - **added `--write-verification-metadata` in v0.1.2**
    - Added `_validate_gradle_args()` method (lines 139-197)
    - Updated `run_task()` to call validation (line 434-436)
 
@@ -125,14 +148,15 @@ async def run_task(self, task: str, args: Optional[list[str]] = None, ...):
 
 ### Files Created
 1. `tests/test_security.py`:
-   - Comprehensive security test suite with 17 tests
+   - Comprehensive security test suite with 19 tests (expanded from 17)
    - Tests for all dangerous argument patterns
    - Tests for safe argument allowance
    - Tests for command injection prevention
+   - **Added test for `--write-verification-metadata` vulnerability (v0.1.2)**
 
 ## Testing
 
-All 26 tests pass (9 existing + 17 new security tests):
+All 28 tests pass (9 existing + 19 security tests):
 
 ```bash
 uv run pytest tests/ -v
@@ -148,9 +172,11 @@ uv run pytest tests/ -v
 ✅ `-g` / `--gradle-user-home` blocked  
 ✅ `-p` / `--project-dir` blocked  
 ✅ `--include-build` blocked  
+✅ `--write-verification-metadata` blocked (added v0.1.2)  
 ✅ Unknown arguments blocked  
 ✅ Mixed safe arguments work  
 ✅ Dangerous args blocked even when mixed with safe ones  
+✅ Arbitrary file write prevented (added v0.1.2)  
 
 ## Backward Compatibility
 
@@ -175,8 +201,23 @@ This fix follows security best practices:
 - ✅ **Allow-list approach**: Only explicitly safe arguments are permitted
 - ✅ **Defense in depth**: Multiple validation checks
 - ✅ **Fail-safe defaults**: Unknown arguments are rejected
-- ✅ **Comprehensive testing**: 17 security-focused tests
+- ✅ **Comprehensive testing**: 19 security-focused tests
 - ✅ **Clear documentation**: Updated docstrings and error messages
+- ✅ **Principle of least privilege**: File system modification arguments blocked
+- ✅ **Continuous improvement**: Additional vulnerabilities identified and fixed (v0.1.2)
+
+## Version History
+
+### v0.1.1 (November 6, 2025)
+- Fixed critical command injection vulnerability
+- Implemented argument allow-list and validation
+- Added 17 security tests
+
+### v0.1.2 (November 7, 2025)
+- Fixed arbitrary file write vulnerability via `--write-verification-metadata`
+- Moved `--write-verification-metadata` from safe to dangerous arguments list
+- Added 2 additional security tests
+- Enhanced security documentation
 
 ## References
 
@@ -186,6 +227,7 @@ This fix follows security best practices:
 
 ---
 
-**Fix Date**: November 6, 2025  
-**Fixed in Version**: 0.1.1 (pending release)  
+**Initial Fix Date**: November 6, 2025  
+**Follow-up Fix Date**: November 7, 2025  
+**Fixed in Version**: 0.1.2 (pending release)  
 **Reported by**: Security Audit  

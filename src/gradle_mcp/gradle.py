@@ -72,9 +72,6 @@ class GradleWrapper:
         # Task exclusion (safe as it only limits what runs)
         '-x', '--exclude-task',
         
-        # Verification options
-        '--write-verification-metadata',
-        
         # Daemon options
         '--daemon',
         '--no-daemon',
@@ -94,6 +91,7 @@ class GradleWrapper:
         '--gradle-user-home', '-g',  # Can access arbitrary directories
         '--project-dir', '-p',  # Can access arbitrary directories
         '--include-build',  # Can include arbitrary builds
+        '--write-verification-metadata',  # Can write files to arbitrary locations
     }
 
     def __init__(self, project_root: Optional[str] = None) -> None:
@@ -176,7 +174,7 @@ class GradleWrapper:
             # Check if this is a safe argument
             if arg in self.SAFE_GRADLE_ARGS:
                 # Some arguments take values, skip the next arg if it doesn't start with -
-                if arg in {'--max-workers', '-x', '--exclude-task', '--write-verification-metadata'}:
+                if arg in {'--max-workers', '-x', '--exclude-task'}:
                     i += 1  # Skip next arg (the value)
                     if i < len(args) and args[i].startswith('-'):
                         i -= 1  # Actually it was another flag, don't skip
