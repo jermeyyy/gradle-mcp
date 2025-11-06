@@ -40,6 +40,62 @@ class GradleWrapper:
         r"^cleanTest.*",
     ]
 
+    # Allow-list of safe Gradle arguments that can be passed to run_task
+    # These are carefully selected to avoid command injection vulnerabilities
+    SAFE_GRADLE_ARGS = {
+        # Logging options
+        '--debug', '-d',
+        '--info', '-i',
+        '--warn', '-w',
+        '--quiet', '-q',
+        '--stacktrace', '-s',
+        '--full-stacktrace', '-S',
+        '--scan',
+        '--no-scan',
+        
+        # Performance options
+        '--build-cache',
+        '--no-build-cache',
+        '--configure-on-demand',
+        '--no-configure-on-demand',
+        '--max-workers',
+        '--parallel',
+        '--no-parallel',
+        
+        # Execution options
+        '--continue',
+        '--dry-run', '-m',
+        '--refresh-dependencies',
+        '--rerun-tasks',
+        '--profile',
+        
+        # Task exclusion (safe as it only limits what runs)
+        '-x', '--exclude-task',
+        
+        # Verification options
+        '--write-verification-metadata',
+        
+        # Daemon options
+        '--daemon',
+        '--no-daemon',
+        '--foreground',
+        '--stop',
+        '--status',
+    }
+    
+    # Dangerous arguments that should never be allowed
+    # These can lead to arbitrary code execution or file system access
+    DANGEROUS_GRADLE_ARGS = {
+        '--init-script', '-I',  # Can execute arbitrary Groovy/Kotlin code
+        '--project-prop', '-P',  # Can inject properties
+        '--system-prop', '-D',  # Can set system properties
+        '--settings-file', '-c',  # Can load arbitrary settings
+        '--build-file', '-b',  # Can load arbitrary build files
+        '--gradle-user-home', '-g',  # Can access arbitrary directories
+        '--project-dir', '-p',  # Can access arbitrary directories
+        '--include-build',  # Can include arbitrary builds
+    }
+
     def __init__(self, project_root: Optional[str] = None) -> None:
         """Initialize Gradle wrapper.
 
@@ -80,6 +136,64 @@ class GradleWrapper:
             if re.match(pattern, task_lower):
                 return True
         return False
+
+    def _validate_gradle_args(self, args: list[str]) -> None:
+        """Validate that all provided Gradle arguments are safe.
+        
+        This method prevents command injection by ensuring that only safe,
+        pre-approved arguments can be passed to Gradle. Any dangerous arguments
+        that could lead to arbitrary code execution or file system access are blocked.
+        
+        Args:
+            args: List of arguments to validate.
+            
+        Raises:
+            ValueError: If any dangerous or unknown arguments are detected.
+        """
+        if not args:
+            return
+            
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            
+            # Check if this is a dangerous argument
+            if arg in self.DANGEROUS_GRADLE_ARGS:
+                raise ValueError(
+                    f"Argument '{arg}' is not allowed due to security concerns. "
+                    f"It could enable arbitrary code execution or unauthorized file access."
+                )
+            
+            # Check for dangerous arguments that might be prefix of a longer string
+            # This catches both --arg=value and -Xvalue patterns
+            for dangerous in self.DANGEROUS_GRADLE_ARGS:
+                if arg.startswith(dangerous + '=') or (len(dangerous) == 2 and arg.startswith(dangerous) and len(arg) > 2):
+                    raise ValueError(
+                        f"Argument '{arg}' is not allowed due to security concerns. "
+                        f"It could enable arbitrary code execution or unauthorized file access."
+                    )
+            
+            # Check if this is a safe argument
+            if arg in self.SAFE_GRADLE_ARGS:
+                # Some arguments take values, skip the next arg if it doesn't start with -
+                if arg in {'--max-workers', '-x', '--exclude-task', '--write-verification-metadata'}:
+                    i += 1  # Skip next arg (the value)
+                    if i < len(args) and args[i].startswith('-'):
+                        i -= 1  # Actually it was another flag, don't skip
+                i += 1
+                continue
+            
+            # Check for arguments with = syntax (e.g., --max-workers=4)
+            base_arg = arg.split('=')[0]
+            if base_arg in self.SAFE_GRADLE_ARGS:
+                i += 1
+                continue
+            
+            # Unknown argument - reject it for safety
+            raise ValueError(
+                f"Argument '{arg}' is not in the allow-list of safe Gradle arguments. "
+                f"Allowed arguments are: {', '.join(sorted(self.SAFE_GRADLE_ARGS))}"
+            )
 
     def _extract_error_message(self, stdout: str, stderr: str, default_message: str = "Task failed") -> str:
         """Extract comprehensive error message from Gradle output.
@@ -320,6 +434,10 @@ class GradleWrapper:
                 f"Task '{task}' is a cleaning task and cannot be run via run_task. "
                 "Please use the clean tool instead."
             )
+
+        # Validate arguments to prevent command injection
+        if args:
+            self._validate_gradle_args(args)
 
         # Remove -q flag to get progress output
         cmd = [str(self.wrapper_script), task, "--no-build-cache"]

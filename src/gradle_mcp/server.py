@@ -141,13 +141,16 @@ async def run_task(
     Args:
         task: Task name to run. Can be simple (e.g., 'build', 'test') for root project
               or qualified with project path (e.g., ':app:build', ':core:test').
-        args: Additional arguments to pass to Gradle (e.g., ['-x', 'test']).
+        args: Additional arguments to pass to Gradle. Only safe arguments from an allow-list
+              are permitted. Dangerous arguments like --init-script, -I, --project-prop, -P,
+              -D, -b, -c, -g, -p, etc. are blocked to prevent command injection attacks.
+              Safe examples: ['-x', 'test'], ['--info'], ['--parallel', '--max-workers=4'].
 
     Returns:
         TaskResult with success status and error message if failed.
 
     Raises:
-        ValueError: If the task is a cleaning task.
+        ValueError: If the task is a cleaning task or if dangerous arguments are provided.
     """
     try:
         await ctx.info(f"Running task: {task}" + (f" with args: {args}" if args else ""))
